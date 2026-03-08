@@ -44,6 +44,11 @@ Web app   → http://localhost:4000
 API       → http://localhost:5000  
 Health    → http://localhost:5000/health
 
+## Database Setup
+
+Detailed DB setup (local + VM + PM2 + troubleshooting):
+- [DB Setup Guide](/home/rev/Documents/projects/TryonKit/docs/DB_SETUP.md)
+
 ## UI + Tracking Enhancements
 
 - Responsive catalog with improved tab/card states and keyboard focus styles.

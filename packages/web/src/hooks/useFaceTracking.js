@@ -18,6 +18,7 @@ export function useFaceTracking(videoRef, canvasRef, { drawMesh = true } = {}) {
   const landmarkerRef = useRef(null)
   const streamRef     = useRef(null)
   const rafRef        = useRef(null)
+  const drawMeshRef   = useRef(drawMesh)
   const lastVideoTimeRef = useRef(-1)
   const lastTimeRef   = useRef(performance.now())
   const frameCountRef = useRef(0)
@@ -62,6 +63,18 @@ export function useFaceTracking(videoRef, canvasRef, { drawMesh = true } = {}) {
       ctx.fill()
     })
   }, [])
+
+  // Keep mesh toggle live without restarting the detection loop
+  useEffect(() => {
+    drawMeshRef.current = drawMesh
+    if (!drawMesh) {
+      const canvas = canvasRef.current
+      if (canvas) {
+        const ctx = canvas.getContext('2d')
+        ctx?.clearRect(0, 0, canvas.width, canvas.height)
+      }
+    }
+  }, [drawMesh, canvasRef])
 
   // ── Detection loop ────────────────────────────────────────
   const detect = useCallback(() => {
@@ -113,11 +126,11 @@ export function useFaceTracking(videoRef, canvasRef, { drawMesh = true } = {}) {
       // tasks-vision returns {x,y,z} objects — same structure as FaceMesh
       const lms = results.faceLandmarks[0]
       setLandmarks(lms)
-      if (drawMesh) drawLandmarks(ctx, lms, canvas.width, canvas.height)
+      if (drawMeshRef.current) drawLandmarks(ctx, lms, canvas.width, canvas.height)
     }
 
     rafRef.current = requestAnimationFrame(detect)
-  }, [videoRef, canvasRef, drawMesh, drawLandmarks, updateFps])
+  }, [videoRef, canvasRef, drawLandmarks, updateFps])
 
   // ── Init ──────────────────────────────────────────────────
   useEffect(() => {
