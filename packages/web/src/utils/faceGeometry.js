@@ -1,26 +1,26 @@
 import * as THREE from 'three'
 
 /**
- * faceGeometry.js — Phase 4 (placement fix)
+ * faceGeometry.js — Phase 5 (anchor accuracy)
  *
- * Fix 1: computeEarAnchor — reduced downward drop offset so
- *         earrings sit AT the lobe, not below the jaw.
- * Fix 2: Added isEarVisible(transform, side) — returns false
- *         when yaw rotation hides that ear from the camera.
- *         Consumers use this to hide/show each earring.
+ * Earring anchors now use earlobe landmarks (177/401) instead
+ * of tragus (234/454), so earrings hang from the actual lobe.
+ * Visibility fade hides earrings when ears rotate out of view.
  */
 
-const L_EAR      = 234
-const R_EAR      = 454
-const L_JAW_LOW  = 132
-const R_JAW_LOW  = 361
-const NOSE_TIP   = 4
-const L_NOSTRIL  = 48
-const R_NOSTRIL  = 278
-const CHIN       = 152
-const FOREHEAD   = 10
-const L_JAW      = 172
-const R_JAW      = 397
+const L_EAR       = 234   // left tragus (face width reference)
+const R_EAR       = 454   // right tragus (face width reference)
+const L_EAR_LOBE  = 177   // left earlobe (earring attachment)
+const R_EAR_LOBE  = 401   // right earlobe (earring attachment)
+const L_JAW_LOW   = 132
+const R_JAW_LOW   = 361
+const NOSE_TIP    = 4
+const L_NOSTRIL   = 48
+const R_NOSTRIL   = 278
+const CHIN        = 152
+const FOREHEAD    = 10
+const L_JAW       = 172
+const R_JAW       = 397
 
 function dist2D(a, b) {
   const dx = b.x - a.x
@@ -88,25 +88,21 @@ export function landmarkToWorld(lm, camera) {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  computeEarAnchor — FIXED
+//  computeEarAnchor
 //
-//  Drop offset reduced from faceWidth * 0.18 → faceWidth * 0.06
-//  so earrings sit at the lobe, not the jaw.
+//  Uses earlobe landmarks (177/401) — the actual piercing point.
+//  Small downward offset for dangle clearance.
 // ─────────────────────────────────────────────────────────────
 export function computeEarAnchor(transform, side, camera) {
   const { _lms, faceWidth } = transform
 
-  const earIdx = side === 'left' ? L_EAR     : R_EAR
-  const jawIdx = side === 'left' ? L_JAW_LOW : R_JAW_LOW
+  const lobeIdx = side === 'left' ? L_EAR_LOBE : R_EAR_LOBE
+  const lobe = _lms[lobeIdx]
 
-  const ear     = _lms[earIdx]
-  const jaw     = _lms[jawIdx]
-  const blended = blend(ear, jaw, 0.15)   // 85% ear, 15% jaw
+  const worldPos = landmarkToWorld(lobe, camera)
 
-  const worldPos = landmarkToWorld(blended, camera)
-
-  // Small downward drop so jewellery hangs just below the tragus
-  worldPos.y -= faceWidth * 0.06
+  // Tiny drop so dangle earrings hang just below the lobe
+  worldPos.y -= faceWidth * 0.02
 
   return worldPos
 }
@@ -144,7 +140,8 @@ export function computeNoseAnchor(transform, side = 'left', camera) {
   const { _lms } = transform
   const nostril = _lms[side === 'left' ? L_NOSTRIL : R_NOSTRIL]
   const nose    = _lms[NOSE_TIP]
-  return landmarkToWorld(blend(nostril, nose, 0.35), camera)
+  // 80% nostril, 20% nose tip — keeps ring close to the nostril
+  return landmarkToWorld(blend(nostril, nose, 0.20), camera)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -155,7 +152,8 @@ export function computeNeckAnchor(transform, camera) {
   const mid    = blend(_lms[L_JAW], _lms[R_JAW])
   const anchor = blend(mid, _lms[CHIN], 0.6)
   const worldPos = landmarkToWorld(anchor, camera)
-  worldPos.y -= faceWidth * 0.45
+  // Drop below chin — proportional to face size
+  worldPos.y -= faceWidth * 0.30
   return worldPos
 }
 
@@ -175,5 +173,5 @@ export function applyFaceRotation(object, transform, opts = {}) {
 export function computeJewelleryScale(transform, baseScale = 1.0) {
   const REFERENCE_WIDTH = 0.35
   const scaleFactor = transform.faceWidth / REFERENCE_WIDTH
-  return baseScale * scaleFactor * 1.4
+  return baseScale * scaleFactor
 }

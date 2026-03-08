@@ -5,17 +5,25 @@ import { useFaceTransform }   from '../hooks/useFaceTransform'
 import { useJewelleryLoader } from '../hooks/useJewelleryLoader'
 import {
   computeEarAnchor,
+  computeNoseAnchor,
+  computeNeckAnchor,
   applyFaceRotation,
   computeJewelleryScale,
   isEarVisible,
 } from '../utils/faceGeometry'
 import styles from './TryOnCanvas.module.css'
 
-const DEFAULT_EARRING = '/models/earring-dangling.glb'
-
+/**
+ * TryOnCanvas — Phase 5+6
+ *
+ * Supports earrings (both ears), necklace, nose ring simultaneously.
+ * Each slot is independently controlled via props.
+ */
 export default function TryOnCanvas({
   showMesh    = false,
-  earringUrl  = DEFAULT_EARRING,
+  earringUrl  = null,
+  necklaceUrl = null,
+  noseRingUrl = null,
   onLandmarks,
   onFaceDetected,
   onTransform,
@@ -23,18 +31,23 @@ export default function TryOnCanvas({
   const videoRef    = useRef(null)
   const threeCanvas = useRef(null)
   const meshCanvas  = useRef(null)
-  const leftRef     = useRef(null)
-  const rightRef    = useRef(null)
 
-  const [modelLoaded, setModelLoaded] = useState(false)
-  const [modelError,  setModelError]  = useState(null)
+  const leftEarRef  = useRef(null)
+  const rightEarRef = useRef(null)
+  const necklaceRef = useRef(null)
+  const noseRef     = useRef(null)
 
-  const { sceneRef, cameraRef }                         = useThreeScene(threeCanvas, videoRef)
-  const { isReady, faceDetected, landmarks, fps, error } = useFaceTracking(videoRef, meshCanvas, { drawMesh: showMesh })
-  const { compute: computeTransform }                   = useFaceTransform()
-  const { loadModel }                                   = useJewelleryLoader()
+  const [status, setStatus] = useState({ camera: false, face: false, models: false })
 
-  // ── Keep landmark canvas sized to Three.js canvas ──────────
+  const { sceneRef, cameraRef }                               = useThreeScene(threeCanvas, videoRef)
+  const { isReady, faceDetected, landmarks, fps, error }      = useFaceTracking(videoRef, meshCanvas, { drawMesh: showMesh })
+  const { compute: computeTransform }                         = useFaceTransform()
+  const { loadModel }                                         = useJewelleryLoader()
+
+  useEffect(() => setStatus(s => ({ ...s, camera: isReady })),      [isReady])
+  useEffect(() => setStatus(s => ({ ...s, face: faceDetected })),   [faceDetected])
+
+  // ── Keep landmark canvas sized ──────────────────────────────
   useEffect(() => {
     const three = threeCanvas.current
     const mesh  = meshCanvas.current
@@ -47,129 +60,142 @@ export default function TryOnCanvas({
     return () => ro.disconnect()
   }, [])
 
-  // ── Load GLB — two independent clones ─────────────────────
+  // ── Generic model slot loader ──────────────────────────────
+  const loadSlot = async (url, ref, scene, mirror = false) => {
+    // Remove existing model in this slot
+    if (ref.current) {
+      disposeModel(ref.current)
+      scene.remove(ref.current)
+      ref.current = null
+    }
+    if (!url) return
+
+    const model = await loadModel(url)
+    model.visible = false
+    model.position.set(0, -10, 0)
+    if (mirror) model.scale.x = -1
+    scene.add(model)
+    ref.current = model
+  }
+
+  const waitForScene = (cb) => {
+    if (sceneRef.current) cb(sceneRef.current)
+    else setTimeout(() => waitForScene(cb), 50)
+  }
+
+  // ── Load earrings ──────────────────────────────────────────
   useEffect(() => {
     let cancelled = false
-
-    const load = async () => {
+    waitForScene(async (scene) => {
       try {
-        setModelError(null)
-        setModelLoaded(false)
-
-        const [leftModel, rightModel] = await Promise.all([
-          loadModel(earringUrl),
-          loadModel(earringUrl),
+        await Promise.all([
+          loadSlot(earringUrl, leftEarRef,  scene, false),
+          loadSlot(earringUrl, rightEarRef, scene, true),
         ])
-
-        if (cancelled) return
-
-        leftModel.name  = 'earring-left'
-        rightModel.name = 'earring-right'
-
-        // Start hidden off-screen
-        leftModel.position.set(0, -10, 0)
-        rightModel.position.set(0, -10, 0)
-
-        // Right earring is physically mirrored
-        rightModel.scale.x = -1
-
-        // Hide until face detected
-        leftModel.visible  = false
-        rightModel.visible = false
-
-        const waitForScene = () => {
-          if (sceneRef.current) {
-            sceneRef.current.add(leftModel)
-            sceneRef.current.add(rightModel)
-            leftRef.current  = leftModel
-            rightRef.current = rightModel
-            setModelLoaded(true)
-          } else {
-            setTimeout(waitForScene, 50)
-          }
-        }
-        waitForScene()
-
-      } catch (err) {
-        if (!cancelled) {
-          console.error('GLB load error:', err)
-          setModelError('Failed to load earring model')
-        }
-      }
-    }
-
-    load()
-
+        if (!cancelled) setStatus(s => ({ ...s, models: true }))
+      } catch (e) { console.error('Earring load error:', e) }
+    })
     return () => {
       cancelled = true
-      ;[leftRef, rightRef].forEach((ref) => {
-        const m = ref.current
-        if (!m) return
-        m.traverse((child) => {
-          if (child.isMesh) {
-            child.geometry?.dispose()
-            Array.isArray(child.material)
-              ? child.material.forEach(x => x.dispose())
-              : child.material?.dispose()
-          }
+      if (sceneRef.current) {
+        ;[leftEarRef, rightEarRef].forEach(r => {
+          if (r.current) { disposeModel(r.current); sceneRef.current.remove(r.current); r.current = null }
         })
-        sceneRef.current?.remove(m)
-        ref.current = null
-      })
-      setModelLoaded(false)
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [earringUrl])
 
-  // ── Position + cull earrings every frame ───────────────────
+  // ── Load necklace ──────────────────────────────────────────
   useEffect(() => {
-    const left  = leftRef.current
-    const right = rightRef.current
-    const cam   = cameraRef.current
-    if (!left || !right || !cam || !landmarks) return
+    let cancelled = false
+    waitForScene(async (scene) => {
+      try {
+        await loadSlot(necklaceUrl, necklaceRef, scene, false)
+      } catch (e) { console.error('Necklace load error:', e) }
+    })
+    return () => {
+      cancelled = true
+      if (necklaceRef.current && sceneRef.current) {
+        disposeModel(necklaceRef.current)
+        sceneRef.current.remove(necklaceRef.current)
+        necklaceRef.current = null
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [necklaceUrl])
+
+  // ── Load nose ring ─────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false
+    waitForScene(async (scene) => {
+      try {
+        await loadSlot(noseRingUrl, noseRef, scene, false)
+      } catch (e) { console.error('Nose ring load error:', e) }
+    })
+    return () => {
+      cancelled = true
+      if (noseRef.current && sceneRef.current) {
+        disposeModel(noseRef.current)
+        sceneRef.current.remove(noseRef.current)
+        noseRef.current = null
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noseRingUrl])
+
+  // ── Position all jewellery every frame ─────────────────────
+  useEffect(() => {
+    const cam = cameraRef.current
+    if (!cam || !landmarks) return
 
     const transform = computeTransform(landmarks)
     if (!transform) return
 
     const s = computeJewelleryScale(transform, 1.0)
 
-    // ── LEFT ear ──────────────────────────────────────────
-    const leftVis = isEarVisible(transform, 'left')
-    if (leftVis <= 0) {
-      left.visible = false
-    } else {
-      left.visible = true
-      // Smoothly set opacity on all meshes for fade
-      left.traverse((child) => {
-        if (child.isMesh && child.material) {
-          child.material.transparent = leftVis < 1
-          child.material.opacity     = leftVis
-        }
-      })
-      const leftAnchor = computeEarAnchor(transform, 'left', cam)
-      left.position.lerp(leftAnchor, 0.35)
-      applyFaceRotation(left, transform)
-      left.scale.set(s, s, s)
+    // Earrings
+    const leftEar  = leftEarRef.current
+    const rightEar = rightEarRef.current
+
+    if (leftEar) {
+      const vis = isEarVisible(transform, 'left')
+      leftEar.visible = vis > 0
+      if (vis > 0) {
+        setOpacity(leftEar, vis)
+        leftEar.position.lerp(computeEarAnchor(transform, 'left', cam), 0.5)
+        applyFaceRotation(leftEar, transform)
+        leftEar.scale.set(s, s, s)
+      }
     }
 
-    // ── RIGHT ear ─────────────────────────────────────────
-    const rightVis = isEarVisible(transform, 'right')
-    if (rightVis <= 0) {
-      right.visible = false
-    } else {
-      right.visible = true
-      right.traverse((child) => {
-        if (child.isMesh && child.material) {
-          child.material.transparent = rightVis < 1
-          child.material.opacity     = rightVis
-        }
-      })
-      const rightAnchor = computeEarAnchor(transform, 'right', cam)
-      right.position.lerp(rightAnchor, 0.35)
-      right.rotation.z = -transform.roll
-      right.rotation.y = -transform.yaw   * 0.6
-      right.rotation.x =  transform.pitch * 0.5
-      right.scale.set(-s, s, s)
+    if (rightEar) {
+      const vis = isEarVisible(transform, 'right')
+      rightEar.visible = vis > 0
+      if (vis > 0) {
+        setOpacity(rightEar, vis)
+        rightEar.position.lerp(computeEarAnchor(transform, 'right', cam), 0.5)
+        applyFaceRotation(rightEar, transform, { yaw: true, pitch: true, roll: true })
+        rightEar.scale.set(-s, s, s)  // mirror X for right ear
+      }
+    }
+
+    // Necklace
+    const necklace = necklaceRef.current
+    if (necklace) {
+      necklace.visible = true
+      necklace.position.lerp(computeNeckAnchor(transform, cam), 0.35)
+      applyFaceRotation(necklace, transform, { yaw: true, pitch: false, roll: true })
+      necklace.scale.setScalar(s * 1.4)
+    }
+
+    // Nose ring
+    const nose = noseRef.current
+    if (nose) {
+      nose.visible = true
+      nose.position.lerp(computeNoseAnchor(transform, 'left', cam), 0.5)
+      applyFaceRotation(nose, transform)
+      nose.scale.setScalar(s * 0.5)
     }
 
     onTransform?.(transform)
@@ -185,29 +211,47 @@ export default function TryOnCanvas({
       <canvas ref={meshCanvas}  className={styles.meshCanvas}  />
 
       <div className={styles.hud}>
-        <HudPill active={isReady}      label={isReady      ? 'Camera ●' : 'Camera …'} />
-        <HudPill active={faceDetected} label={faceDetected ? 'Face ●'   : 'Face ○'}   />
-        <HudPill active={modelLoaded}  label={modelLoaded  ? 'Model ●'  : 'Model …'}  />
+        <HudPill active={status.camera} label={status.camera ? 'Camera ●' : 'Camera …'} />
+        <HudPill active={status.face}   label={status.face   ? 'Face ●'   : 'Face ○'}   />
         {isReady && <span className={styles.fps}>{fps} FPS</span>}
       </div>
 
-      {(!isReady || !modelLoaded) && !error && !modelError && (
+      {!isReady && !error && (
         <div className={styles.overlay}>
           <div className={styles.spinner} />
-          <p>{!isReady ? 'Loading face tracking…' : 'Loading earring model…'}</p>
-          <p className={styles.overlaySub}>
-            {!isReady ? 'Downloading MediaPipe models' : 'Parsing GLB geometry'}
-          </p>
+          <p>Loading face tracking…</p>
+          <p className={styles.overlaySub}>Downloading MediaPipe models</p>
         </div>
       )}
-      {(error || modelError) && (
+      {error && (
         <div className={styles.overlay}>
           <span className={styles.errorIcon}>⚠</span>
-          <p>{error || modelError}</p>
+          <p>{error}</p>
         </div>
       )}
     </div>
   )
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function setOpacity(model, opacity) {
+  model.traverse((child) => {
+    if (child.isMesh && child.material) {
+      child.material.transparent = opacity < 1
+      child.material.opacity     = opacity
+    }
+  })
+}
+
+function disposeModel(model) {
+  model.traverse((child) => {
+    if (child.isMesh) {
+      child.geometry?.dispose()
+      Array.isArray(child.material)
+        ? child.material.forEach(m => m.dispose())
+        : child.material?.dispose()
+    }
+  })
 }
 
 function HudPill({ active, label }) {
