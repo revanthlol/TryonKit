@@ -1,22 +1,19 @@
 import * as THREE from 'three'
 
 /**
- * faceGeometry.js — Phase 3 (fixed)
+ * faceGeometry.js — Phase 4 (placement fix)
  *
- * Fix 1: Ear anchor now uses landmark 234 (left ear tragus — the
- *         cartilage notch at the ear opening). This is the most
- *         reliably tracked ear point in MediaPipe FaceMesh.
- *         Landmark 177 was jaw/cheek — wrong point entirely.
- *
- * Fix 2: computeJewelleryScale multiplier raised from 0.22 → 1.4
- *         so the object is actually visible at normal distances.
+ * Fix 1: computeEarAnchor — reduced downward drop offset so
+ *         earrings sit AT the lobe, not below the jaw.
+ * Fix 2: Added isEarVisible(transform, side) — returns false
+ *         when yaw rotation hides that ear from the camera.
+ *         Consumers use this to hide/show each earring.
  */
 
-// ── Landmark indices ──────────────────────────────────────────
-const L_EAR      = 234   // left ear tragus  ← primary attach point
-const R_EAR      = 454   // right ear tragus
-const L_JAW_LOW  = 132   // lower jaw near left ear  (stabiliser)
-const R_JAW_LOW  = 361   // lower jaw near right ear (stabiliser)
+const L_EAR      = 234
+const R_EAR      = 454
+const L_JAW_LOW  = 132
+const R_JAW_LOW  = 361
 const NOSE_TIP   = 4
 const L_NOSTRIL  = 48
 const R_NOSTRIL  = 278
@@ -25,7 +22,6 @@ const FOREHEAD   = 10
 const L_JAW      = 172
 const R_JAW      = 397
 
-// ── Helpers ───────────────────────────────────────────────────
 function dist2D(a, b) {
   const dx = b.x - a.x
   const dy = b.y - a.y
@@ -54,23 +50,19 @@ export function computeFaceTransform(landmarks) {
   const faceHeight = dist2D(forehead, chin)
   const center     = blend(leftEar, rightEar)
 
-  // Roll — tilt of the ear-to-ear axis
   const roll = Math.atan2(
     rightEar.y - leftEar.y,
     rightEar.x - leftEar.x
   )
 
-  // Yaw — nose deviation from face center
   const noseDeviation = (noseTip.x - center.x) / (faceWidth * 0.5 + 1e-6)
   const yaw = noseDeviation * (Math.PI / 2.5)
 
-  // Pitch — nose z + vertical deviation
   const noseCenterY = (forehead.y + chin.y) * 0.5
   const pitchFromY  = (noseTip.y - noseCenterY) / (faceHeight * 0.5 + 1e-6)
   const pitchFromZ  = -noseTip.z * 2.5
   const pitch       = (pitchFromY * 0.4 + pitchFromZ * 0.6) * (Math.PI / 4)
 
-  // Depth approximation
   const TYPICAL_FACE_WIDTH = 0.35
   const depth = (faceWidth - TYPICAL_FACE_WIDTH) * 0.8
 
@@ -85,7 +77,6 @@ export function computeFaceTransform(landmarks) {
 //  landmarkToWorld
 // ─────────────────────────────────────────────────────────────
 export function landmarkToWorld(lm, camera) {
-  // No x-flip here — the CSS scaleX(-1) on the canvas handles mirroring
   const ndcX =  lm.x * 2 - 1
   const ndcY = -lm.y * 2 + 1
 
@@ -97,15 +88,10 @@ export function landmarkToWorld(lm, camera) {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  computeEarAnchor
+//  computeEarAnchor — FIXED
 //
-//  Uses landmark 234 (left ear tragus) as the base.
-//  Blends lightly with the lower-jaw neighbour (132) for
-//  stability — but 80% weight stays on the ear itself so
-//  the anchor doesn't drift toward the cheek.
-//
-//  A downward offset is applied so the jewellery hangs
-//  below the tragus, where the lobe sits.
+//  Drop offset reduced from faceWidth * 0.18 → faceWidth * 0.06
+//  so earrings sit at the lobe, not the jaw.
 // ─────────────────────────────────────────────────────────────
 export function computeEarAnchor(transform, side, camera) {
   const { _lms, faceWidth } = transform
@@ -113,19 +99,42 @@ export function computeEarAnchor(transform, side, camera) {
   const earIdx = side === 'left' ? L_EAR     : R_EAR
   const jawIdx = side === 'left' ? L_JAW_LOW : R_JAW_LOW
 
-  const ear = _lms[earIdx]
-  const jaw = _lms[jawIdx]
-
-  // 80 % ear, 20 % jaw neighbour — stays close to ear
-  const blended = blend(ear, jaw, 0.2)
+  const ear     = _lms[earIdx]
+  const jaw     = _lms[jawIdx]
+  const blended = blend(ear, jaw, 0.15)   // 85% ear, 15% jaw
 
   const worldPos = landmarkToWorld(blended, camera)
 
-  // Drop the jewellery downward to simulate lobe position.
-  // The offset scales with face size so it's consistent at all distances.
-  worldPos.y -= faceWidth * 0.18
+  // Small downward drop so jewellery hangs just below the tragus
+  worldPos.y -= faceWidth * 0.06
 
   return worldPos
+}
+
+// ─────────────────────────────────────────────────────────────
+//  isEarVisible — NEW
+//
+//  Returns true when the ear on `side` is facing the camera.
+//
+//  Yaw is positive when the face turns RIGHT (nose moves right).
+//  Left ear  becomes invisible when yaw > +threshold (face right)
+//  Right ear becomes invisible when yaw < -threshold (face left)
+//
+//  threshold ~0.4 rad (~23°) — ear starts going out of view.
+//  We use a soft fade zone [0.3, 0.55] so the earring doesn't
+//  snap on/off — it fades out over ~15° of rotation.
+// ─────────────────────────────────────────────────────────────
+export function isEarVisible(transform, side) {
+  const yaw = transform.yaw
+  const FADE_START = 0.30   // ~17° — start fading
+  const FADE_END   = 0.55   // ~31° — fully hidden
+
+  // Raw visibility signal: positive = this ear is turning away
+  const signal = side === 'left' ? -yaw : yaw
+
+  if (signal < FADE_START) return 1.0                              // fully visible
+  if (signal > FADE_END)   return 0.0                              // fully hidden
+  return 1.0 - (signal - FADE_START) / (FADE_END - FADE_START)    // 0→1 fade
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -145,7 +154,6 @@ export function computeNeckAnchor(transform, camera) {
   const { _lms, faceWidth } = transform
   const mid    = blend(_lms[L_JAW], _lms[R_JAW])
   const anchor = blend(mid, _lms[CHIN], 0.6)
-
   const worldPos = landmarkToWorld(anchor, camera)
   worldPos.y -= faceWidth * 0.45
   return worldPos
@@ -163,9 +171,6 @@ export function applyFaceRotation(object, transform, opts = {}) {
 
 // ─────────────────────────────────────────────────────────────
 //  computeJewelleryScale
-//
-//  FIX: multiplier raised from 0.22 → 1.4 so the object
-//  renders at a visible size at typical webcam distances.
 // ─────────────────────────────────────────────────────────────
 export function computeJewelleryScale(transform, baseScale = 1.0) {
   const REFERENCE_WIDTH = 0.35

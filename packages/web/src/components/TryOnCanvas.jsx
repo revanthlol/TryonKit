@@ -1,5 +1,4 @@
 import React, { useRef, useEffect, useState } from 'react'
-import * as THREE from 'three'
 import { useThreeScene }      from '../hooks/useThreeScene'
 import { useFaceTracking }    from '../hooks/useFaceTracking'
 import { useFaceTransform }   from '../hooks/useFaceTransform'
@@ -8,17 +7,12 @@ import {
   computeEarAnchor,
   applyFaceRotation,
   computeJewelleryScale,
+  isEarVisible,
 } from '../utils/faceGeometry'
 import styles from './TryOnCanvas.module.css'
 
 const DEFAULT_EARRING = '/models/earring-dangling.glb'
 
-/**
- * TryOnCanvas — Phase 4
- *
- * Loads a GLB earring model and places it on both ears.
- * Earrings scale, rotate and translate with the face transform.
- */
 export default function TryOnCanvas({
   showMesh    = false,
   earringUrl  = DEFAULT_EARRING,
@@ -29,19 +23,16 @@ export default function TryOnCanvas({
   const videoRef    = useRef(null)
   const threeCanvas = useRef(null)
   const meshCanvas  = useRef(null)
-
-  // One ref per ear
-  const leftEarringRef  = useRef(null)
-  const rightEarringRef = useRef(null)
+  const leftRef     = useRef(null)
+  const rightRef    = useRef(null)
 
   const [modelLoaded, setModelLoaded] = useState(false)
   const [modelError,  setModelError]  = useState(null)
 
-  const { sceneRef, cameraRef }            = useThreeScene(threeCanvas, videoRef)
-  const { isReady, faceDetected, landmarks, fps, error } =
-    useFaceTracking(videoRef, meshCanvas, { drawMesh: showMesh })
-  const { compute: computeTransform }      = useFaceTransform()
-  const { loadModel }                      = useJewelleryLoader()
+  const { sceneRef, cameraRef }                         = useThreeScene(threeCanvas, videoRef)
+  const { isReady, faceDetected, landmarks, fps, error } = useFaceTracking(videoRef, meshCanvas, { drawMesh: showMesh })
+  const { compute: computeTransform }                   = useFaceTransform()
+  const { loadModel }                                   = useJewelleryLoader()
 
   // ── Keep landmark canvas sized to Three.js canvas ──────────
   useEffect(() => {
@@ -56,9 +47,8 @@ export default function TryOnCanvas({
     return () => ro.disconnect()
   }, [])
 
-  // ── Load GLB model — create left + right instances ─────────
+  // ── Load GLB — two independent clones ─────────────────────
   useEffect(() => {
-    if (!sceneRef.current) return
     let cancelled = false
 
     const load = async () => {
@@ -66,7 +56,6 @@ export default function TryOnCanvas({
         setModelError(null)
         setModelLoaded(false)
 
-        // Load two independent clones for left and right ear
         const [leftModel, rightModel] = await Promise.all([
           loadModel(earringUrl),
           loadModel(earringUrl),
@@ -74,24 +63,33 @@ export default function TryOnCanvas({
 
         if (cancelled) return
 
-        // Name them for easy lookup
         leftModel.name  = 'earring-left'
         rightModel.name = 'earring-right'
 
-        // Mirror the right earring on X axis
-        rightModel.scale.x = -1
-
-        // Start off-screen until first landmark arrives
+        // Start hidden off-screen
         leftModel.position.set(0, -10, 0)
         rightModel.position.set(0, -10, 0)
 
-        sceneRef.current.add(leftModel)
-        sceneRef.current.add(rightModel)
+        // Right earring is physically mirrored
+        rightModel.scale.x = -1
 
-        leftEarringRef.current  = leftModel
-        rightEarringRef.current = rightModel
+        // Hide until face detected
+        leftModel.visible  = false
+        rightModel.visible = false
 
-        setModelLoaded(true)
+        const waitForScene = () => {
+          if (sceneRef.current) {
+            sceneRef.current.add(leftModel)
+            sceneRef.current.add(rightModel)
+            leftRef.current  = leftModel
+            rightRef.current = rightModel
+            setModelLoaded(true)
+          } else {
+            setTimeout(waitForScene, 50)
+          }
+        }
+        waitForScene()
+
       } catch (err) {
         if (!cancelled) {
           console.error('GLB load error:', err)
@@ -100,63 +98,79 @@ export default function TryOnCanvas({
       }
     }
 
-    // Wait for scene to be ready
-    const tryLoad = () => {
-      if (sceneRef.current) load()
-      else setTimeout(tryLoad, 50)
-    }
-    tryLoad()
+    load()
 
     return () => {
       cancelled = true
-      // Remove and dispose both earrings
-      ;[leftEarringRef, rightEarringRef].forEach((ref) => {
-        const model = ref.current
-        if (!model) return
-        model.traverse((child) => {
+      ;[leftRef, rightRef].forEach((ref) => {
+        const m = ref.current
+        if (!m) return
+        m.traverse((child) => {
           if (child.isMesh) {
             child.geometry?.dispose()
             Array.isArray(child.material)
-              ? child.material.forEach(m => m.dispose())
+              ? child.material.forEach(x => x.dispose())
               : child.material?.dispose()
           }
         })
-        sceneRef.current?.remove(model)
+        sceneRef.current?.remove(m)
         ref.current = null
       })
       setModelLoaded(false)
     }
-  // Reload when earring URL changes (product switching — Phase 6)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [earringUrl, !!sceneRef.current])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [earringUrl])
 
-  // ── Position earrings every frame ─────────────────────────
+  // ── Position + cull earrings every frame ───────────────────
   useEffect(() => {
-    const left  = leftEarringRef.current
-    const right = rightEarringRef.current
+    const left  = leftRef.current
+    const right = rightRef.current
     const cam   = cameraRef.current
     if (!left || !right || !cam || !landmarks) return
 
     const transform = computeTransform(landmarks)
     if (!transform) return
 
-    // ── Left ear ──────────────────────────────────────────
-    const leftAnchor = computeEarAnchor(transform, 'left', cam)
-    left.position.lerp(leftAnchor, 0.35)
-    applyFaceRotation(left, transform)
-
-    // ── Right ear ─────────────────────────────────────────
-    const rightAnchor = computeEarAnchor(transform, 'right', cam)
-    right.position.lerp(rightAnchor, 0.35)
-    // Right ear: mirror yaw, same pitch+roll
-    right.rotation.z = -transform.roll
-    right.rotation.y = -transform.yaw  * 0.6   // mirrored
-    right.rotation.x =  transform.pitch * 0.5
-
-    // ── Scale both to face distance ───────────────────────
     const s = computeJewelleryScale(transform, 1.0)
-    left.scale.set(s, s, s)
-    right.scale.set(-s, s, s)   // keep X negative for mirror
+
+    // ── LEFT ear ──────────────────────────────────────────
+    const leftVis = isEarVisible(transform, 'left')
+    if (leftVis <= 0) {
+      left.visible = false
+    } else {
+      left.visible = true
+      // Smoothly set opacity on all meshes for fade
+      left.traverse((child) => {
+        if (child.isMesh && child.material) {
+          child.material.transparent = leftVis < 1
+          child.material.opacity     = leftVis
+        }
+      })
+      const leftAnchor = computeEarAnchor(transform, 'left', cam)
+      left.position.lerp(leftAnchor, 0.35)
+      applyFaceRotation(left, transform)
+      left.scale.set(s, s, s)
+    }
+
+    // ── RIGHT ear ─────────────────────────────────────────
+    const rightVis = isEarVisible(transform, 'right')
+    if (rightVis <= 0) {
+      right.visible = false
+    } else {
+      right.visible = true
+      right.traverse((child) => {
+        if (child.isMesh && child.material) {
+          child.material.transparent = rightVis < 1
+          child.material.opacity     = rightVis
+        }
+      })
+      const rightAnchor = computeEarAnchor(transform, 'right', cam)
+      right.position.lerp(rightAnchor, 0.35)
+      right.rotation.z = -transform.roll
+      right.rotation.y = -transform.yaw   * 0.6
+      right.rotation.x =  transform.pitch * 0.5
+      right.scale.set(-s, s, s)
+    }
 
     onTransform?.(transform)
   }, [landmarks, cameraRef, computeTransform, onTransform])
@@ -170,7 +184,6 @@ export default function TryOnCanvas({
       <canvas ref={threeCanvas} className={styles.threeCanvas} />
       <canvas ref={meshCanvas}  className={styles.meshCanvas}  />
 
-      {/* HUD */}
       <div className={styles.hud}>
         <HudPill active={isReady}      label={isReady      ? 'Camera ●' : 'Camera …'} />
         <HudPill active={faceDetected} label={faceDetected ? 'Face ●'   : 'Face ○'}   />
@@ -178,7 +191,6 @@ export default function TryOnCanvas({
         {isReady && <span className={styles.fps}>{fps} FPS</span>}
       </div>
 
-      {/* Loading overlay */}
       {(!isReady || !modelLoaded) && !error && !modelError && (
         <div className={styles.overlay}>
           <div className={styles.spinner} />
@@ -188,7 +200,6 @@ export default function TryOnCanvas({
           </p>
         </div>
       )}
-
       {(error || modelError) && (
         <div className={styles.overlay}>
           <span className={styles.errorIcon}>⚠</span>
