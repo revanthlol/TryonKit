@@ -1,4 +1,6 @@
 {
+  "buildCommand": "npm run build -w packages/web",
+  "outputDirectory": "packages/web/dist",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "http://140.245.218.2:5000/api/$1" }
   ]

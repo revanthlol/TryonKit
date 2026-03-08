@@ -6,11 +6,12 @@
     "packages/*"
   ],
   "scripts": {
-    "dev":        "concurrently -n web,server -c cyan,yellow \"npm run dev -w packages/web\" \"npm run dev -w packages/server\"",
-    "dev:web":    "npm run dev -w packages/web",
+    "dev": "concurrently -n web,server -c cyan,yellow \"npm run dev -w packages/web\" \"npm run dev -w packages/server\"",
+    "dev:web": "npm run dev -w packages/web",
     "dev:server": "npm run dev -w packages/server",
-    "migrate":    "node packages/server/src/db/migrate.js",
-    "seed":       "node packages/server/src/db/seed.js"
+    "migrate": "node packages/server/src/db/migrate.js",
+    "seed": "node packages/server/src/db/seed.js",
+    "build": "npm run build -w packages/web"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
