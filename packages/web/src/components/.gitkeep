@@ -1,0 +1,2 @@
+cat > packages/web/src/assets/models/.gitkeep << ''
+cat > packages/web/src/assets/thumbnails/.gitkeep << ''
