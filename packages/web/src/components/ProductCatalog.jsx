@@ -122,11 +122,18 @@ export default function ProductCatalog() {
         <span className={styles.metaText}>
           {loading ? 'Loading products...' : `${filtered.length} items`}
         </span>
-        {selectedCount > 0 && (
-          <button className={styles.clearBtn} onClick={() => setSelected(null)}>
-            Clear selection
-          </button>
-        )}
+        <div className={styles.metaActions}>
+          {selectedCount > 0 && (
+            <button className={styles.tryAnotherBtn} onClick={() => setSelected(null)}>
+              Try another product
+            </button>
+          )}
+          {selectedCount > 0 && (
+            <button className={styles.clearBtn} onClick={() => setSelected(null)}>
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Grid */}

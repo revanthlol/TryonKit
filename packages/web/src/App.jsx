@@ -106,6 +106,21 @@ export default function App() {
               </div>
             )}
           </div>
+
+          <div className="mobile-quick-actions">
+            <button
+              className={`quick-btn ${showMesh ? 'quick-btn-active' : ''}`}
+              onClick={() => setShowMesh(v => !v)}
+            >
+              {showMesh ? 'Hide Mesh' : 'Show Mesh'}
+            </button>
+            <button
+              className="quick-btn"
+              onClick={() => setTheme(v => v === 'dark' ? 'light' : 'dark')}
+            >
+              {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+            </button>
+          </div>
         </section>
 
         <aside className="catalog-section">

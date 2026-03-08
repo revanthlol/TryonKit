@@ -72,6 +72,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .metaText {
@@ -89,6 +90,25 @@
   font-size: 0.68rem;
   cursor: pointer;
 }
+.metaActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+}
+.tryAnotherBtn {
+  border: 1px solid color-mix(in srgb, var(--gold) 38%, var(--border));
+  background: color-mix(in srgb, var(--gold-dim) 62%, var(--surface));
+  color: var(--gold-light);
+  border-radius: 999px;
+  padding: 0.3rem 0.76rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease, border-color 0.12s ease;
+}
+.tryAnotherBtn:hover { filter: brightness(1.04); border-color: rgba(212,168,67,0.44); }
+.tryAnotherBtn:active { transform: scale(0.97); }
+.tryAnotherBtn:focus-visible { outline: 2px solid rgba(212,168,67,0.4); outline-offset: 1px; }
 
 .clearBtn:hover { border-color: rgba(212,168,67,0.35); background: rgba(212,168,67,0.08); }
 .clearBtn:focus-visible { outline: 2px solid rgba(212,168,67,0.4); outline-offset: 1px; }
@@ -260,4 +280,32 @@
   padding: 0.5rem 0.85rem;
   font-size: 0.72rem; color: var(--danger);
   border-top: 1px solid var(--border);
+}
+
+@media (max-width: 767px) {
+  .tabs {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    background: var(--surface);
+  }
+  .metaRow {
+    position: sticky;
+    top: 3.2rem;
+    z-index: 3;
+    background: var(--surface);
+    padding-top: 0.62rem;
+    padding-bottom: 0.45rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  }
+  .metaText { font-size: 0.72rem; }
+  .tryAnotherBtn { font-size: 0.7rem; padding: 0.35rem 0.7rem; }
+  .clearBtn { font-size: 0.68rem; padding: 0.32rem 0.6rem; }
+  .card {
+    transition: transform 0.1s ease, border-color 0.12s, background 0.12s, box-shadow 0.12s;
+  }
+  .card:active {
+    transform: scale(0.97);
+    filter: brightness(1.03);
+  }
 }
