@@ -6,11 +6,24 @@ import { productRoutes } from './routes/products.js'
 
 const app  = express()
 const PORT = process.env.PORT || 5000
+const allowedOrigins = (
+  process.env.CLIENT_URLS ||
+  process.env.CLIENT_URL ||
+  'http://localhost:4000,http://localhost:3000'
+)
+  .split(',')
+  .map((v) => v.trim())
+  .filter(Boolean)
 
 // ── Middleware ──────────────────────────────────────────────
 app.use(helmet())
 app.use(cors({
-  origin:      process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: (origin, cb) => {
+    // Allow non-browser requests (curl, server-to-server)
+    if (!origin) return cb(null, true)
+    if (allowedOrigins.includes(origin)) return cb(null, true)
+    return cb(new Error(`CORS blocked for origin: ${origin}`))
+  },
   credentials: true,
 }))
 app.use(express.json())
@@ -31,6 +44,9 @@ app.use((_req, res) => {
 // ── Error handler ────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
   console.error(err.stack)
+  if (err.message?.startsWith('CORS blocked for origin:')) {
+    return res.status(403).json({ success: false, error: err.message })
+  }
   res.status(500).json({ success: false, error: 'Internal server error' })
 })
 
