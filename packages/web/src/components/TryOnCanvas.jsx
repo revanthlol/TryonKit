@@ -1,8 +1,9 @@
-import React, { useRef, useEffect } from 'react'
-import { useThreeScene }    from '../hooks/useThreeScene'
-import { useFaceTracking }  from '../hooks/useFaceTracking'
-import { useFaceTransform } from '../hooks/useFaceTransform'
-import { createTestCube }   from '../utils/testObject'
+import React, { useRef, useEffect, useState } from 'react'
+import * as THREE from 'three'
+import { useThreeScene }      from '../hooks/useThreeScene'
+import { useFaceTracking }    from '../hooks/useFaceTracking'
+import { useFaceTransform }   from '../hooks/useFaceTransform'
+import { useJewelleryLoader } from '../hooks/useJewelleryLoader'
 import {
   computeEarAnchor,
   applyFaceRotation,
@@ -10,24 +11,37 @@ import {
 } from '../utils/faceGeometry'
 import styles from './TryOnCanvas.module.css'
 
+const DEFAULT_EARRING = '/models/earring-dangling.glb'
+
 /**
- * TryOnCanvas — Phase 3
+ * TryOnCanvas — Phase 4
  *
- * The cube now uses the full pseudo-3D face coordinate system:
- *   • Weighted + smoothed ear anchor  → correct position
- *   • Face scale                      → correct size at any distance
- *   • Head yaw / pitch / roll         → cube rotates with the head
+ * Loads a GLB earring model and places it on both ears.
+ * Earrings scale, rotate and translate with the face transform.
  */
-export default function TryOnCanvas({ showMesh = true, onLandmarks, onFaceDetected, onTransform }) {
+export default function TryOnCanvas({
+  showMesh    = false,
+  earringUrl  = DEFAULT_EARRING,
+  onLandmarks,
+  onFaceDetected,
+  onTransform,
+}) {
   const videoRef    = useRef(null)
   const threeCanvas = useRef(null)
   const meshCanvas  = useRef(null)
-  const cubeRef     = useRef(null)
 
-  const { sceneRef, cameraRef } = useThreeScene(threeCanvas, videoRef)
+  // One ref per ear
+  const leftEarringRef  = useRef(null)
+  const rightEarringRef = useRef(null)
+
+  const [modelLoaded, setModelLoaded] = useState(false)
+  const [modelError,  setModelError]  = useState(null)
+
+  const { sceneRef, cameraRef }            = useThreeScene(threeCanvas, videoRef)
   const { isReady, faceDetected, landmarks, fps, error } =
     useFaceTracking(videoRef, meshCanvas, { drawMesh: showMesh })
-  const { compute: computeTransform } = useFaceTransform()
+  const { compute: computeTransform }      = useFaceTransform()
+  const { loadModel }                      = useJewelleryLoader()
 
   // ── Keep landmark canvas sized to Three.js canvas ──────────
   useEffect(() => {
@@ -42,62 +56,108 @@ export default function TryOnCanvas({ showMesh = true, onLandmarks, onFaceDetect
     return () => ro.disconnect()
   }, [])
 
-  // ── Add test cube once on mount ────────────────────────────
+  // ── Load GLB model — create left + right instances ─────────
   useEffect(() => {
-    let timeoutId
-    const tryAdd = () => {
-      if (sceneRef.current) {
-        const cube = createTestCube()
-        cubeRef.current = cube
-        sceneRef.current.add(cube)
-      } else {
-        timeoutId = setTimeout(tryAdd, 50)
+    if (!sceneRef.current) return
+    let cancelled = false
+
+    const load = async () => {
+      try {
+        setModelError(null)
+        setModelLoaded(false)
+
+        // Load two independent clones for left and right ear
+        const [leftModel, rightModel] = await Promise.all([
+          loadModel(earringUrl),
+          loadModel(earringUrl),
+        ])
+
+        if (cancelled) return
+
+        // Name them for easy lookup
+        leftModel.name  = 'earring-left'
+        rightModel.name = 'earring-right'
+
+        // Mirror the right earring on X axis
+        rightModel.scale.x = -1
+
+        // Start off-screen until first landmark arrives
+        leftModel.position.set(0, -10, 0)
+        rightModel.position.set(0, -10, 0)
+
+        sceneRef.current.add(leftModel)
+        sceneRef.current.add(rightModel)
+
+        leftEarringRef.current  = leftModel
+        rightEarringRef.current = rightModel
+
+        setModelLoaded(true)
+      } catch (err) {
+        if (!cancelled) {
+          console.error('GLB load error:', err)
+          setModelError('Failed to load earring model')
+        }
       }
     }
-    tryAdd()
+
+    // Wait for scene to be ready
+    const tryLoad = () => {
+      if (sceneRef.current) load()
+      else setTimeout(tryLoad, 50)
+    }
+    tryLoad()
 
     return () => {
-      clearTimeout(timeoutId)
-      const cube = cubeRef.current
-      if (!cube) return
-      cube.traverse((child) => {
-        if (child.isMesh) {
-          child.geometry?.dispose()
-          Array.isArray(child.material)
-            ? child.material.forEach(m => m.dispose())
-            : child.material?.dispose()
-        }
+      cancelled = true
+      // Remove and dispose both earrings
+      ;[leftEarringRef, rightEarringRef].forEach((ref) => {
+        const model = ref.current
+        if (!model) return
+        model.traverse((child) => {
+          if (child.isMesh) {
+            child.geometry?.dispose()
+            Array.isArray(child.material)
+              ? child.material.forEach(m => m.dispose())
+              : child.material?.dispose()
+          }
+        })
+        sceneRef.current?.remove(model)
+        ref.current = null
       })
-      sceneRef.current?.remove(cube)
-      cubeRef.current = null
+      setModelLoaded(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // Reload when earring URL changes (product switching — Phase 6)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [earringUrl, !!sceneRef.current])
 
-  // ── Phase 3: position cube using face coordinate system ────
+  // ── Position earrings every frame ─────────────────────────
   useEffect(() => {
-    const cube = cubeRef.current
-    const cam  = cameraRef.current
-    if (!cube || !cam || !landmarks) return
+    const left  = leftEarringRef.current
+    const right = rightEarringRef.current
+    const cam   = cameraRef.current
+    if (!left || !right || !cam || !landmarks) return
 
-    // 1. Compute smoothed face transform
     const transform = computeTransform(landmarks)
     if (!transform) return
 
-    // 2. Weighted, stabilised left ear anchor in world space
-    const anchor = computeEarAnchor(transform, 'left', cam)
+    // ── Left ear ──────────────────────────────────────────
+    const leftAnchor = computeEarAnchor(transform, 'left', cam)
+    left.position.lerp(leftAnchor, 0.35)
+    applyFaceRotation(left, transform)
 
-    // 3. Smooth position via lerp
-    cube.position.lerp(anchor, 0.3)
+    // ── Right ear ─────────────────────────────────────────
+    const rightAnchor = computeEarAnchor(transform, 'right', cam)
+    right.position.lerp(rightAnchor, 0.35)
+    // Right ear: mirror yaw, same pitch+roll
+    right.rotation.z = -transform.roll
+    right.rotation.y = -transform.yaw  * 0.6   // mirrored
+    right.rotation.x =  transform.pitch * 0.5
 
-    // 4. Apply head rotation so cube tilts with the head
-    applyFaceRotation(cube, transform, { yaw: true, pitch: true, roll: true })
-
-    // 5. Scale with face distance — stays same visual size at any depth
+    // ── Scale both to face distance ───────────────────────
     const s = computeJewelleryScale(transform, 1.0)
-    cube.scale.setScalar(s)
+    left.scale.set(s, s, s)
+    right.scale.set(-s, s, s)   // keep X negative for mirror
 
-    // Bubble transform data up for debug panel
     onTransform?.(transform)
   }, [landmarks, cameraRef, computeTransform, onTransform])
 
@@ -110,24 +170,29 @@ export default function TryOnCanvas({ showMesh = true, onLandmarks, onFaceDetect
       <canvas ref={threeCanvas} className={styles.threeCanvas} />
       <canvas ref={meshCanvas}  className={styles.meshCanvas}  />
 
+      {/* HUD */}
       <div className={styles.hud}>
         <HudPill active={isReady}      label={isReady      ? 'Camera ●' : 'Camera …'} />
         <HudPill active={faceDetected} label={faceDetected ? 'Face ●'   : 'Face ○'}   />
+        <HudPill active={modelLoaded}  label={modelLoaded  ? 'Model ●'  : 'Model …'}  />
         {isReady && <span className={styles.fps}>{fps} FPS</span>}
       </div>
 
-      {!isReady && !error && (
+      {/* Loading overlay */}
+      {(!isReady || !modelLoaded) && !error && !modelError && (
         <div className={styles.overlay}>
           <div className={styles.spinner} />
-          <p>Loading face tracking…</p>
-          <p className={styles.overlaySub}>Downloading MediaPipe models (~3 MB)</p>
+          <p>{!isReady ? 'Loading face tracking…' : 'Loading earring model…'}</p>
+          <p className={styles.overlaySub}>
+            {!isReady ? 'Downloading MediaPipe models' : 'Parsing GLB geometry'}
+          </p>
         </div>
       )}
-      {error && (
+
+      {(error || modelError) && (
         <div className={styles.overlay}>
           <span className={styles.errorIcon}>⚠</span>
-          <p>{error}</p>
-          <p className={styles.overlaySub}>Allow camera access and use localhost.</p>
+          <p>{error || modelError}</p>
         </div>
       )}
     </div>
