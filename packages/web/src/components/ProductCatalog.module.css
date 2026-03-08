@@ -234,7 +234,7 @@
 
 .cardName {
   font-size: 0.74rem; color: var(--text);
-  text-align: center; line-height: 1.18;
+  text-align: center; line-height: 1.24;
   max-width: 102px;
   min-height: 1.8rem;
   display: -webkit-box;
@@ -301,6 +301,13 @@
   .metaText { font-size: 0.72rem; }
   .tryAnotherBtn { font-size: 0.7rem; padding: 0.35rem 0.7rem; }
   .clearBtn { font-size: 0.68rem; padding: 0.32rem 0.6rem; }
+  .card {
+    border-radius: 12px;
+    min-height: 168px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset;
+  }
+  .cardName { max-width: 100%; min-height: 2.05rem; }
+  .cardPrice { font-size: 0.76rem; }
   .card {
     transition: transform 0.1s ease, border-color 0.12s, background 0.12s, box-shadow 0.12s;
   }

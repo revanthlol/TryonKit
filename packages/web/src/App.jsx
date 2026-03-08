@@ -36,6 +36,10 @@ export default function App() {
     setStoreFaceDetected(trackingStats.faceDetected)
   }, [trackingStats.isReady, trackingStats.faceDetected, setTrackingActive, setStoreFaceDetected])
   useEffect(() => {
+    // Ensure mesh starts disabled on fresh app mount.
+    setShowMesh(false)
+  }, [])
+  useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem('tryonkit-theme', theme)
     const themeMeta = document.querySelector('meta[name="theme-color"]')
