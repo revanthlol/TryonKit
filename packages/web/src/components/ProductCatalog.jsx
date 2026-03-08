@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useJewelleryStore } from '../store/useJewelleryStore'
 import styles from './ProductCatalog.module.css'
 
@@ -13,6 +13,7 @@ export default function ProductCatalog() {
   const [activeTab,   setActiveTab]   = useState('earring')
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState(null)
+  const hasLoggedApiError = useRef(false)
 
   const products            = useJewelleryStore(s => s.products)
   const setProducts         = useJewelleryStore(s => s.setProducts)
@@ -59,11 +60,15 @@ export default function ProductCatalog() {
         }
 
         if (cancelled) return
-        setProducts(json.data)
+        setProducts(normalizeProducts(json.data))
         setError(null)
+        hasLoggedApiError.current = false
       } catch (err) {
         if (err.name === 'AbortError') return
-        console.warn('Catalog API failed, using offline products:', err)
+        if (!hasLoggedApiError.current) {
+          console.warn('Catalog API failed, using offline products:', err)
+          hasLoggedApiError.current = true
+        }
         if (cancelled) return
         setError(err.message || 'Catalog unavailable')
         // Load with placeholder models so try-on still works offline
@@ -190,3 +195,32 @@ const PLACEHOLDER_PRODUCTS = [
   { id: 'p5', name: 'Nose Pin',          category: 'nose_ring', price: 499,  model_url: '/models/nose-pin.glb',        thumbnail: null },
   { id: 'p6', name: 'Nose Ring',         category: 'nose_ring', price: 399,  model_url: '/models/nose-ring.glb',       thumbnail: null },
 ]
+
+const DEFAULT_MODEL_BY_CATEGORY = {
+  earring: '/models/earring-dangling.glb',
+  necklace: '/models/necklace-chain.glb',
+  nose_ring: '/models/nose-pin.glb',
+}
+
+function normalizeProducts(items) {
+  return items.map((p) => {
+    const fallbackModel = DEFAULT_MODEL_BY_CATEGORY[p.category] || null
+    const modelUrl = typeof p.model_url === 'string' ? p.model_url.trim() : ''
+    const thumb = typeof p.thumbnail === 'string' ? p.thumbnail.trim() : ''
+
+    const modelLooksInvalid =
+      !modelUrl ||
+      modelUrl.includes('/models/placeholder-') ||
+      !modelUrl.endsWith('.glb')
+
+    const thumbLooksInvalid =
+      !thumb ||
+      thumb.includes('/thumbnails/placeholder-')
+
+    return {
+      ...p,
+      model_url: modelLooksInvalid ? fallbackModel : modelUrl,
+      thumbnail: thumbLooksInvalid ? null : thumb,
+    }
+  })
+}
