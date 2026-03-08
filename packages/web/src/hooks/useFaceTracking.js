@@ -18,9 +18,11 @@ export function useFaceTracking(videoRef, canvasRef, { drawMesh = true } = {}) {
   const landmarkerRef = useRef(null)
   const streamRef     = useRef(null)
   const rafRef        = useRef(null)
+  const lastVideoTimeRef = useRef(-1)
   const lastTimeRef   = useRef(performance.now())
   const frameCountRef = useRef(0)
   const runningRef    = useRef(false)
+  const presenceRef   = useRef({ hits: 0, misses: 0, detected: false })
 
   const [isReady,      setIsReady]      = useState(false)
   const [faceDetected, setFaceDetected] = useState(false)
@@ -74,6 +76,13 @@ export function useFaceTracking(videoRef, canvasRef, { drawMesh = true } = {}) {
       return
     }
 
+    // Skip duplicate video frames to reduce unnecessary inference
+    if (video.currentTime === lastVideoTimeRef.current) {
+      rafRef.current = requestAnimationFrame(detect)
+      return
+    }
+    lastVideoTimeRef.current = video.currentTime
+
     // tasks-vision uses timestamp-based detection
     const results = lander.detectForVideo(video, performance.now())
 
@@ -83,7 +92,20 @@ export function useFaceTracking(videoRef, canvasRef, { drawMesh = true } = {}) {
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
     const detected = !!(results.faceLandmarks?.length)
-    setFaceDetected(detected)
+    const presence = presenceRef.current
+    if (detected) {
+      presence.hits += 1
+      presence.misses = 0
+    } else {
+      presence.hits = 0
+      presence.misses += 1
+    }
+
+    // Hysteresis to avoid rapid face/no-face flicker on edge frames
+    if (!presence.detected && presence.hits >= 2) presence.detected = true
+    if (presence.detected && presence.misses >= 4) presence.detected = false
+
+    setFaceDetected(presence.detected)
 
     if (!detected) {
       setLandmarks(null)
@@ -146,6 +168,7 @@ export function useFaceTracking(videoRef, canvasRef, { drawMesh = true } = {}) {
         await videoRef.current.play()
 
         runningRef.current = true
+        presenceRef.current = { hits: 0, misses: 0, detected: false }
         setIsReady(true)
         rafRef.current = requestAnimationFrame(detect)
 
@@ -162,6 +185,7 @@ export function useFaceTracking(videoRef, canvasRef, { drawMesh = true } = {}) {
     return () => {
       cancelled = true
       runningRef.current = false
+      lastVideoTimeRef.current = -1
       cancelAnimationFrame(rafRef.current)
       streamRef.current?.getTracks().forEach(t => t.stop())
       landmarkerRef.current?.close()

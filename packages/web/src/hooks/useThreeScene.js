@@ -1,5 +1,18 @@
 import { useEffect, useRef, useCallback } from 'react'
-import * as THREE from 'three'
+import {
+  WebGLRenderer,
+  Scene,
+  PerspectiveCamera,
+  AmbientLight,
+  DirectionalLight,
+  VideoTexture,
+  LinearFilter,
+  SRGBColorSpace,
+  OrthographicCamera,
+  PlaneGeometry,
+  MeshBasicMaterial,
+  Mesh,
+} from 'three'
 
 /**
  * useThreeScene — Phase 2 (fixed)
@@ -25,17 +38,17 @@ export function useThreeScene(canvasRef, videoRef) {
     let cancelled = false
 
     // ── Renderer ──────────────────────────────────────────
-    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true })
+    const renderer = new WebGLRenderer({ canvas, alpha: true, antialias: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.autoClear = false
     rendererRef.current = renderer
 
     // ── Jewellery scene (perspective) ──────────────────────
-    const jwScene  = new THREE.Scene()
-    const jwCamera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.01, 100)
+    const jwScene  = new Scene()
+    const jwCamera = new PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.01, 100)
     jwCamera.position.set(0, 0, 2)
-    jwScene.add(new THREE.AmbientLight(0xffffff, 0.6))
-    const dirLight = new THREE.DirectionalLight(0xfff5e0, 1.2)
+    jwScene.add(new AmbientLight(0xffffff, 0.6))
+    const dirLight = new DirectionalLight(0xfff5e0, 1.2)
     dirLight.position.set(1, 2, 3)
     jwScene.add(dirLight)
     jewelleryScene.current = jwScene
@@ -49,16 +62,16 @@ export function useThreeScene(canvasRef, videoRef) {
 
     const buildBackground = () => {
       if (cancelled) return
-      videoTexture = new THREE.VideoTexture(video)
-      videoTexture.minFilter  = THREE.LinearFilter
-      videoTexture.magFilter  = THREE.LinearFilter
-      videoTexture.colorSpace = THREE.SRGBColorSpace
+      videoTexture = new VideoTexture(video)
+      videoTexture.minFilter  = LinearFilter
+      videoTexture.magFilter  = LinearFilter
+      videoTexture.colorSpace = SRGBColorSpace
 
-      bgScene  = new THREE.Scene()
-      bgCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
-      const geo = new THREE.PlaneGeometry(2, 2)
-      const mat = new THREE.MeshBasicMaterial({ map: videoTexture, depthTest: false, depthWrite: false })
-      bgScene.add(new THREE.Mesh(geo, mat))
+      bgScene  = new Scene()
+      bgCamera = new OrthographicCamera(-1, 1, 1, -1, 0, 1)
+      const geo = new PlaneGeometry(2, 2)
+      const mat = new MeshBasicMaterial({ map: videoTexture, depthTest: false, depthWrite: false })
+      bgScene.add(new Mesh(geo, mat))
     }
 
     // Fire immediately if video is already loaded, otherwise wait

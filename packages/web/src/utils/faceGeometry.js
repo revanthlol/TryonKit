@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import { Vector3 } from 'three'
 
 /**
  * faceGeometry.js — Phase 5 (accurate anchoring)
@@ -76,7 +76,7 @@ export function landmarkToWorld(lm, camera) {
   const ndcX =  lm.x * 2 - 1
   const ndcY = -lm.y * 2 + 1
 
-  const vec = new THREE.Vector3(ndcX, ndcY, 0.5)
+  const vec = new Vector3(ndcX, ndcY, 0.5)
   vec.unproject(camera)
   const dir = vec.clone().sub(camera.position).normalize()
   const dist = -camera.position.z / dir.z

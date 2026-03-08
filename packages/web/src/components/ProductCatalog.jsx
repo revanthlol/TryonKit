@@ -24,29 +24,66 @@ export default function ProductCatalog() {
   const setSelectedNoseRing = useJewelleryStore(s => s.setSelectedNoseRing)
 
   useEffect(() => {
+    if (products.length > 0) {
+      setLoading(false)
+      return
+    }
+
+    const controller = new AbortController()
+    let cancelled = false
+
     const fetchProducts = async () => {
       try {
         setLoading(true)
-        const res  = await fetch('/api/products')
-        const json = await res.json()
-        if (!json.success) throw new Error(json.error)
+        const res = await fetch('/api/products', {
+          signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        })
+        const raw = await res.text()
+
+        let json = null
+        if (raw) {
+          try {
+            json = JSON.parse(raw)
+          } catch {
+            json = null
+          }
+        }
+
+        if (!res.ok) {
+          throw new Error(json?.error || `Catalog API error (${res.status})`)
+        }
+        if (!json?.success || !Array.isArray(json?.data)) {
+          throw new Error('Catalog API returned invalid JSON')
+        }
+
+        if (cancelled) return
         setProducts(json.data)
+        setError(null)
       } catch (err) {
-        console.error('Failed to fetch products:', err)
-        setError(err.message)
+        if (err.name === 'AbortError') return
+        console.warn('Catalog API failed, using offline products:', err)
+        if (cancelled) return
+        setError(err.message || 'Catalog unavailable')
         // Load with placeholder models so try-on still works offline
         setProducts(PLACEHOLDER_PRODUCTS)
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
+
     fetchProducts()
-  }, [setProducts])
+
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [products.length, setProducts])
 
   const tabs = [
-    { key: 'earring',   label: '💎 Earrings'  },
-    { key: 'necklace',  label: '📿 Necklaces'  },
-    { key: 'nose_ring', label: '✦ Nose Rings'  },
+    { key: 'earring',   icon: '✦', label: 'Earrings'  },
+    { key: 'necklace',  icon: '◍', label: 'Necklaces'  },
+    { key: 'nose_ring', icon: '•', label: 'Nose Rings'  },
   ]
 
   const filtered  = products.filter(p => p.category === activeTab)
@@ -56,6 +93,7 @@ export default function ProductCatalog() {
   const setSelected = activeTab === 'earring'   ? setSelectedEarring
                     : activeTab === 'necklace'  ? setSelectedNecklace
                     : setSelectedNoseRing
+  const selectedCount = selected ? 1 : 0
 
   return (
     <div className={styles.catalog}>
@@ -66,10 +104,23 @@ export default function ProductCatalog() {
             key={t.key}
             className={`${styles.tab} ${activeTab === t.key ? styles.tabActive : ''}`}
             onClick={() => setActiveTab(t.key)}
+            aria-pressed={activeTab === t.key}
           >
-            {t.label}
+            <span className={styles.tabIcon}>{t.icon}</span>
+            <span>{t.label}</span>
           </button>
         ))}
+      </div>
+
+      <div className={styles.metaRow}>
+        <span className={styles.metaText}>
+          {loading ? 'Loading products...' : `${filtered.length} items`}
+        </span>
+        {selectedCount > 0 && (
+          <button className={styles.clearBtn} onClick={() => setSelected(null)}>
+            Clear selection
+          </button>
+        )}
       </div>
 
       {/* Grid */}
@@ -78,6 +129,7 @@ export default function ProductCatalog() {
         <button
           className={`${styles.card} ${!selected ? styles.cardActive : ''}`}
           onClick={() => setSelected(null)}
+          aria-pressed={!selected}
         >
           <div className={styles.cardThumb} style={{ background: 'transparent' }}>
             <span className={styles.noneIcon}>✕</span>
@@ -98,6 +150,7 @@ export default function ProductCatalog() {
             key={product.id}
             className={`${styles.card} ${selected?.id === product.id ? styles.cardActive : ''}`}
             onClick={() => setSelected(selected?.id === product.id ? null : product)}
+            aria-pressed={selected?.id === product.id}
           >
             <div className={styles.cardThumb}>
               {product.thumbnail
@@ -107,6 +160,7 @@ export default function ProductCatalog() {
                   </span>
               }
             </div>
+            {selected?.id === product.id && <span className={styles.cardCheck}>✓</span>}
             <span className={styles.cardName}>{product.name}</span>
             <span className={styles.cardPrice}>₹{Number(product.price).toLocaleString('en-IN')}</span>
           </button>
@@ -119,7 +173,7 @@ export default function ProductCatalog() {
 
       {error && (
         <p className={styles.errorNote}>
-          ⚠ Using offline models — API unreachable
+          ⚠ Using offline models — {error}
         </p>
       )}
     </div>

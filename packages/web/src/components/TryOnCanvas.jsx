@@ -27,6 +27,7 @@ export default function TryOnCanvas({
   onLandmarks,
   onFaceDetected,
   onTransform,
+  onTrackingStats,
 }) {
   const videoRef    = useRef(null)
   const threeCanvas = useRef(null)
@@ -41,11 +42,24 @@ export default function TryOnCanvas({
 
   const { sceneRef, cameraRef }                               = useThreeScene(threeCanvas, videoRef)
   const { isReady, faceDetected, landmarks, fps, error }      = useFaceTracking(videoRef, meshCanvas, { drawMesh: showMesh })
-  const { compute: computeTransform }                         = useFaceTransform()
+  const { compute: computeTransform, reset: resetTransform } = useFaceTransform()
   const { loadModel }                                         = useJewelleryLoader()
 
   useEffect(() => setStatus(s => ({ ...s, camera: isReady })),      [isReady])
   useEffect(() => setStatus(s => ({ ...s, face: faceDetected })),   [faceDetected])
+  useEffect(() => {
+    const quality = !isReady
+      ? 'starting'
+      : !faceDetected
+        ? 'searching'
+        : fps >= 28
+          ? 'excellent'
+          : fps >= 18
+            ? 'good'
+            : 'weak'
+
+    onTrackingStats?.({ isReady, faceDetected, fps, quality })
+  }, [isReady, faceDetected, fps, onTrackingStats])
 
   // ── Keep landmark canvas sized ──────────────────────────────
   useEffect(() => {
@@ -87,6 +101,7 @@ export default function TryOnCanvas({
     let cancelled = false
     waitForScene(async (scene) => {
       try {
+        if (cancelled) return
         await Promise.all([
           loadSlot(earringUrl, leftEarRef,  scene, false),
           loadSlot(earringUrl, rightEarRef, scene, true),
@@ -109,6 +124,7 @@ export default function TryOnCanvas({
     let cancelled = false
     waitForScene(async (scene) => {
       try {
+        if (cancelled) return
         await loadSlot(necklaceUrl, necklaceRef, scene, false)
       } catch (e) { console.error('Necklace load error:', e) }
     })
@@ -128,6 +144,7 @@ export default function TryOnCanvas({
     let cancelled = false
     waitForScene(async (scene) => {
       try {
+        if (cancelled) return
         await loadSlot(noseRingUrl, noseRef, scene, false)
       } catch (e) { console.error('Nose ring load error:', e) }
     })
@@ -145,7 +162,11 @@ export default function TryOnCanvas({
   // ── Position all jewellery every frame ─────────────────────
   useEffect(() => {
     const cam = cameraRef.current
-    if (!cam || !landmarks) return
+    if (!cam || !landmarks) {
+      resetTransform()
+      onTransform?.(null)
+      return
+    }
 
     const transform = computeTransform(landmarks)
     if (!transform) return
@@ -200,7 +221,7 @@ export default function TryOnCanvas({
     }
 
     onTransform?.(transform)
-  }, [landmarks, cameraRef, computeTransform, onTransform])
+  }, [landmarks, cameraRef, computeTransform, onTransform, resetTransform])
 
   useEffect(() => { onLandmarks?.(landmarks)       }, [landmarks,    onLandmarks])
   useEffect(() => { onFaceDetected?.(faceDetected) }, [faceDetected, onFaceDetected])
@@ -258,8 +279,8 @@ function disposeModel(model) {
 function HudPill({ active, label }) {
   return (
     <span className={styles.hudPill} style={{
-      color:       active ? 'var(--color-accent-2)' : 'var(--color-muted)',
-      borderColor: active ? 'rgba(201,168,76,0.3)'  : 'var(--color-border)',
+      color:       active ? 'var(--gold-light)' : 'var(--muted)',
+      borderColor: active ? 'rgba(201,168,76,0.3)'  : 'var(--border)',
     }}>
       {label}
     </span>

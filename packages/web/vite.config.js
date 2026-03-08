@@ -25,4 +25,16 @@ export default defineConfig({
   css: {
     devSourcemap: false,
   },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'zustand'],
+          'vendor-three': ['three'],
+          'vendor-mediapipe': ['@mediapipe/tasks-vision'],
+        },
+      },
+    },
+  },
 })
