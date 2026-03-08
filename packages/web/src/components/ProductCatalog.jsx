@@ -22,6 +22,7 @@ export default function ProductCatalog() {
   const setSelectedEarring  = useJewelleryStore(s => s.setSelectedEarring)
   const setSelectedNecklace = useJewelleryStore(s => s.setSelectedNecklace)
   const setSelectedNoseRing = useJewelleryStore(s => s.setSelectedNoseRing)
+  const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 
   useEffect(() => {
     if (products.length > 0) {
@@ -35,7 +36,7 @@ export default function ProductCatalog() {
     const fetchProducts = async () => {
       try {
         setLoading(true)
-        const res = await fetch('/api/products', {
+        const res = await fetch(`${apiBase}/api/products`, {
           signal: controller.signal,
           headers: { Accept: 'application/json' },
         })
