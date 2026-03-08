@@ -1,31 +1,30 @@
 import * as THREE from 'three'
 
 /**
- * faceGeometry.js — Phase 5 (anchor accuracy)
+ * faceGeometry.js — Phase 5 (accurate anchoring)
  *
- * Earring anchors now use earlobe landmarks (177/401) instead
- * of tragus (234/454), so earrings hang from the actual lobe.
- * Visibility fade hides earrings when ears rotate out of view.
+ * MediaPipe's face mesh stops at the cheek boundary — it does NOT
+ * cover the actual ears. Landmark 234/454 are at the pre-auricular
+ * area (cheek side of the ear), not the earlobe.
+ *
+ * To place earrings accurately, we:
+ * 1. Take the outermost face landmark near the ear (234/454)
+ * 2. Push OUTWARD from face center (ears extend beyond the mesh)
+ * 3. Push DOWNWARD from tragus level to earlobe level
  */
 
-const L_EAR       = 234   // left tragus (face width reference)
-const R_EAR       = 454   // right tragus (face width reference)
-const L_EAR_LOBE  = 177   // left earlobe (earring attachment)
-const R_EAR_LOBE  = 401   // right earlobe (earring attachment)
-const L_JAW_LOW   = 132
-const R_JAW_LOW   = 361
-const NOSE_TIP    = 4
-const L_NOSTRIL   = 48
-const R_NOSTRIL   = 278
-const CHIN        = 152
-const FOREHEAD    = 10
-const L_JAW       = 172
-const R_JAW       = 397
+const L_EAR      = 234
+const R_EAR      = 454
+const NOSE_TIP   = 4
+const L_NOSTRIL  = 48
+const R_NOSTRIL  = 278
+const CHIN       = 152
+const FOREHEAD   = 10
+const L_JAW      = 172
+const R_JAW      = 397
 
 function dist2D(a, b) {
-  const dx = b.x - a.x
-  const dy = b.y - a.y
-  return Math.sqrt(dx * dx + dy * dy)
+  return Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2)
 }
 
 function blend(a, b, t = 0.5) {
@@ -63,12 +62,9 @@ export function computeFaceTransform(landmarks) {
   const pitchFromZ  = -noseTip.z * 2.5
   const pitch       = (pitchFromY * 0.4 + pitchFromZ * 0.6) * (Math.PI / 4)
 
-  const TYPICAL_FACE_WIDTH = 0.35
-  const depth = (faceWidth - TYPICAL_FACE_WIDTH) * 0.8
-
   return {
     center, faceWidth, faceHeight,
-    roll, yaw, pitch, depth,
+    roll, yaw, pitch,
     _lms: landmarks,
   }
 }
@@ -80,9 +76,9 @@ export function landmarkToWorld(lm, camera) {
   const ndcX =  lm.x * 2 - 1
   const ndcY = -lm.y * 2 + 1
 
-  const vec  = new THREE.Vector3(ndcX, ndcY, 0.5)
+  const vec = new THREE.Vector3(ndcX, ndcY, 0.5)
   vec.unproject(camera)
-  const dir  = vec.clone().sub(camera.position).normalize()
+  const dir = vec.clone().sub(camera.position).normalize()
   const dist = -camera.position.z / dir.z
   return camera.position.clone().add(dir.multiplyScalar(dist))
 }
@@ -90,47 +86,52 @@ export function landmarkToWorld(lm, camera) {
 // ─────────────────────────────────────────────────────────────
 //  computeEarAnchor
 //
-//  Uses earlobe landmarks (177/401) — the actual piercing point.
-//  Small downward offset for dangle clearance.
+//  Landmark 234/454 is on the CHEEK, not the ear. The actual
+//  earlobe is:
+//    - Further OUTWARD from face center (~12% of face width)
+//    - Further DOWN from tragus level (~8% of face height)
+//
+//  We compute the outward direction from face center to the
+//  ear landmark and extend beyond it.
 // ─────────────────────────────────────────────────────────────
 export function computeEarAnchor(transform, side, camera) {
-  const { _lms, faceWidth } = transform
+  const { _lms, faceWidth, faceHeight, center } = transform
 
-  const lobeIdx = side === 'left' ? L_EAR_LOBE : R_EAR_LOBE
-  const lobe = _lms[lobeIdx]
+  const earIdx = side === 'left' ? L_EAR : R_EAR
+  const ear    = _lms[earIdx]
 
-  const worldPos = landmarkToWorld(lobe, camera)
+  // Direction from face center to ear landmark (outward)
+  const dx = ear.x - center.x
+  const dy = ear.y - center.y
 
-  // Tiny drop so dangle earrings hang just below the lobe
-  worldPos.y -= faceWidth * 0.02
+  // Push outward past the face mesh boundary to reach the actual ear
+  const outwardPush = faceWidth * 0.12
 
-  return worldPos
+  // Push downward from tragus to earlobe
+  const downPush = faceHeight * 0.08
+
+  const lobe = {
+    x: ear.x + (dx / Math.abs(dx + 1e-6)) * outwardPush,
+    y: ear.y + downPush,
+    z: ear.z,
+  }
+
+  return landmarkToWorld(lobe, camera)
 }
 
 // ─────────────────────────────────────────────────────────────
-//  isEarVisible — NEW
-//
-//  Returns true when the ear on `side` is facing the camera.
-//
-//  Yaw is positive when the face turns RIGHT (nose moves right).
-//  Left ear  becomes invisible when yaw > +threshold (face right)
-//  Right ear becomes invisible when yaw < -threshold (face left)
-//
-//  threshold ~0.4 rad (~23°) — ear starts going out of view.
-//  We use a soft fade zone [0.3, 0.55] so the earring doesn't
-//  snap on/off — it fades out over ~15° of rotation.
+//  isEarVisible
 // ─────────────────────────────────────────────────────────────
 export function isEarVisible(transform, side) {
   const yaw = transform.yaw
-  const FADE_START = 0.30   // ~17° — start fading
-  const FADE_END   = 0.55   // ~31° — fully hidden
+  const FADE_START = 0.30
+  const FADE_END   = 0.55
 
-  // Raw visibility signal: positive = this ear is turning away
   const signal = side === 'left' ? -yaw : yaw
 
-  if (signal < FADE_START) return 1.0                              // fully visible
-  if (signal > FADE_END)   return 0.0                              // fully hidden
-  return 1.0 - (signal - FADE_START) / (FADE_END - FADE_START)    // 0→1 fade
+  if (signal < FADE_START) return 1.0
+  if (signal > FADE_END)   return 0.0
+  return 1.0 - (signal - FADE_START) / (FADE_END - FADE_START)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -140,8 +141,8 @@ export function computeNoseAnchor(transform, side = 'left', camera) {
   const { _lms } = transform
   const nostril = _lms[side === 'left' ? L_NOSTRIL : R_NOSTRIL]
   const nose    = _lms[NOSE_TIP]
-  // 80% nostril, 20% nose tip — keeps ring close to the nostril
-  return landmarkToWorld(blend(nostril, nose, 0.20), camera)
+  // 90% nostril, 10% nose tip — right at the nostril edge
+  return landmarkToWorld(blend(nostril, nose, 0.10), camera)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -150,10 +151,9 @@ export function computeNoseAnchor(transform, side = 'left', camera) {
 export function computeNeckAnchor(transform, camera) {
   const { _lms, faceWidth } = transform
   const mid    = blend(_lms[L_JAW], _lms[R_JAW])
-  const anchor = blend(mid, _lms[CHIN], 0.6)
+  const anchor = blend(mid, _lms[CHIN], 0.55)
   const worldPos = landmarkToWorld(anchor, camera)
-  // Drop below chin — proportional to face size
-  worldPos.y -= faceWidth * 0.30
+  worldPos.y -= faceWidth * 0.25
   return worldPos
 }
 
@@ -172,6 +172,5 @@ export function applyFaceRotation(object, transform, opts = {}) {
 // ─────────────────────────────────────────────────────────────
 export function computeJewelleryScale(transform, baseScale = 1.0) {
   const REFERENCE_WIDTH = 0.35
-  const scaleFactor = transform.faceWidth / REFERENCE_WIDTH
-  return baseScale * scaleFactor
+  return baseScale * (transform.faceWidth / REFERENCE_WIDTH)
 }

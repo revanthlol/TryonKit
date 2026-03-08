@@ -20,7 +20,9 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    // tasks-vision uses top-level await — exclude from pre-bundling
     exclude: ['@mediapipe/tasks-vision'],
+  },
+  css: {
+    devSourcemap: false,
   },
 })

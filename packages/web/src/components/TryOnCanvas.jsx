@@ -17,7 +17,7 @@ import styles from './TryOnCanvas.module.css'
  * TryOnCanvas — Phase 5+6
  *
  * Supports earrings (both ears), necklace, nose ring simultaneously.
- * Each slot is independently controlled via props.
+ * Models are pre-normalized so per-type multipliers control relative size.
  */
 export default function TryOnCanvas({
   showMesh    = false,
@@ -37,7 +37,7 @@ export default function TryOnCanvas({
   const necklaceRef = useRef(null)
   const noseRef     = useRef(null)
 
-  const [status, setStatus] = useState({ camera: false, face: false, models: false })
+  const [status, setStatus] = useState({ camera: false, face: false })
 
   const { sceneRef, cameraRef }                               = useThreeScene(threeCanvas, videoRef)
   const { isReady, faceDetected, landmarks, fps, error }      = useFaceTracking(videoRef, meshCanvas, { drawMesh: showMesh })
@@ -62,7 +62,6 @@ export default function TryOnCanvas({
 
   // ── Generic model slot loader ──────────────────────────────
   const loadSlot = async (url, ref, scene, mirror = false) => {
-    // Remove existing model in this slot
     if (ref.current) {
       disposeModel(ref.current)
       scene.remove(ref.current)
@@ -92,7 +91,6 @@ export default function TryOnCanvas({
           loadSlot(earringUrl, leftEarRef,  scene, false),
           loadSlot(earringUrl, rightEarRef, scene, true),
         ])
-        if (!cancelled) setStatus(s => ({ ...s, models: true }))
       } catch (e) { console.error('Earring load error:', e) }
     })
     return () => {
@@ -154,9 +152,10 @@ export default function TryOnCanvas({
 
     const s = computeJewelleryScale(transform, 1.0)
 
-    // Earrings
+    // ── Earrings ──
     const leftEar  = leftEarRef.current
     const rightEar = rightEarRef.current
+    const earScale = s * 1.8
 
     if (leftEar) {
       const vis = isEarVisible(transform, 'left')
@@ -165,7 +164,7 @@ export default function TryOnCanvas({
         setOpacity(leftEar, vis)
         leftEar.position.lerp(computeEarAnchor(transform, 'left', cam), 0.5)
         applyFaceRotation(leftEar, transform)
-        leftEar.scale.set(s, s, s)
+        leftEar.scale.set(earScale, earScale, earScale)
       }
     }
 
@@ -175,27 +174,29 @@ export default function TryOnCanvas({
       if (vis > 0) {
         setOpacity(rightEar, vis)
         rightEar.position.lerp(computeEarAnchor(transform, 'right', cam), 0.5)
-        applyFaceRotation(rightEar, transform, { yaw: true, pitch: true, roll: true })
-        rightEar.scale.set(-s, s, s)  // mirror X for right ear
+        applyFaceRotation(rightEar, transform)
+        rightEar.scale.set(-earScale, earScale, earScale)
       }
     }
 
-    // Necklace
+    // ── Necklace ──
     const necklace = necklaceRef.current
     if (necklace) {
+      const neckScale = s * 2.0
       necklace.visible = true
       necklace.position.lerp(computeNeckAnchor(transform, cam), 0.35)
       applyFaceRotation(necklace, transform, { yaw: true, pitch: false, roll: true })
-      necklace.scale.setScalar(s * 1.4)
+      necklace.scale.setScalar(neckScale)
     }
 
-    // Nose ring
+    // ── Nose ring ──
     const nose = noseRef.current
     if (nose) {
+      const noseScale = s * 1.8
       nose.visible = true
       nose.position.lerp(computeNoseAnchor(transform, 'left', cam), 0.5)
       applyFaceRotation(nose, transform)
-      nose.scale.setScalar(s * 0.5)
+      nose.scale.setScalar(noseScale)
     }
 
     onTransform?.(transform)
@@ -211,21 +212,21 @@ export default function TryOnCanvas({
       <canvas ref={meshCanvas}  className={styles.meshCanvas}  />
 
       <div className={styles.hud}>
-        <HudPill active={status.camera} label={status.camera ? 'Camera ●' : 'Camera …'} />
-        <HudPill active={status.face}   label={status.face   ? 'Face ●'   : 'Face ○'}   />
+        <HudPill active={status.camera} label={status.camera ? 'Camera' : 'Camera …'} />
+        <HudPill active={status.face}   label={status.face   ? 'Face'   : 'No face'}  />
         {isReady && <span className={styles.fps}>{fps} FPS</span>}
       </div>
 
       {!isReady && !error && (
         <div className={styles.overlay}>
           <div className={styles.spinner} />
-          <p>Loading face tracking…</p>
+          <p>Loading face tracking</p>
           <p className={styles.overlaySub}>Downloading MediaPipe models</p>
         </div>
       )}
       {error && (
         <div className={styles.overlay}>
-          <span className={styles.errorIcon}>⚠</span>
+          <span className={styles.errorIcon}>!</span>
           <p>{error}</p>
         </div>
       )}

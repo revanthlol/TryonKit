@@ -4,11 +4,6 @@ import ProductCatalog from './components/ProductCatalog'
 import { useJewelleryStore } from './store/useJewelleryStore'
 import './styles/global.css'
 
-/**
- * TryonKit App — Phase 5+6
- * Full try-on: earrings + necklace + nose ring
- * Product catalog with live switching
- */
 export default function App() {
   const [faceDetected, setFaceDetected] = useState(false)
   const [transform,    setTransform]    = useState(null)
@@ -18,34 +13,32 @@ export default function App() {
   const selectedNecklace = useJewelleryStore(s => s.selectedNecklace)
   const selectedNoseRing = useJewelleryStore(s => s.selectedNoseRing)
 
-  const handleFaceDetected = useCallback(b  => setFaceDetected(b), [])
-  const handleTransform    = useCallback(t  => setTransform(t),    [])
+  const handleFaceDetected = useCallback(b => setFaceDetected(b), [])
+  const handleTransform    = useCallback(t => setTransform(t),    [])
 
-  const toDeg = r => r != null ? (r * 180 / Math.PI).toFixed(1) + '°' : '—'
+  const toDeg = r => r != null ? (r * 180 / Math.PI).toFixed(1) + '\u00B0' : '\u2014'
 
   return (
     <div className="app-v1">
       <header className="header-v1">
         <div className="header-logo">
-          <span className="logo-gem">💎</span>
           <span className="logo-text">TryonKit</span>
         </div>
         <div className="header-controls">
           <div className={`face-status ${faceDetected ? 'face-status-on' : ''}`}>
-            {faceDetected ? '◉ Face tracked' : '◎ No face'}
+            {faceDetected ? 'Tracking' : 'No face'}
           </div>
           <button
             className={`toggle-btn ${showMesh ? 'toggle-btn-active' : ''}`}
             onClick={() => setShowMesh(v => !v)}
           >
-            {showMesh ? 'Mesh on' : 'Mesh off'}
+            Mesh
           </button>
-          <div className="header-phase">TryonKit v0.6</div>
+          <div className="header-phase">v0.6</div>
         </div>
       </header>
 
       <main className="main-v2">
-        {/* ── Left: viewport ─────────────────────────────── */}
         <section className="viewport-section">
           <TryOnCanvas
             showMesh={showMesh}
@@ -56,7 +49,6 @@ export default function App() {
             onTransform={handleTransform}
           />
 
-          {/* Active selections display */}
           <div className="active-items">
             <ActiveItem label="Earrings"  item={selectedEarring}  />
             <ActiveItem label="Necklace"  item={selectedNecklace} />
@@ -64,12 +56,10 @@ export default function App() {
           </div>
         </section>
 
-        {/* ── Right: catalog ──────────────────────────────── */}
         <aside className="catalog-section">
           <h2 className="catalog-heading">Select Jewellery</h2>
           <ProductCatalog />
 
-          {/* Transform debug — collapsed by default */}
           {transform && (
             <details className="transform-debug">
               <summary>Face Transform</summary>
@@ -101,7 +91,7 @@ function DebugItem({ label, value }) {
   return (
     <div className="debug-item debug-item-active">
       <span className="debug-label">{label}</span>
-      <span className="debug-value">{value ?? '—'}</span>
+      <span className="debug-value">{value ?? '\u2014'}</span>
     </div>
   )
 }
