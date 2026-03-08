@@ -102,14 +102,15 @@
 
 /* ── Grid ────────────────────────────────────────────────────── */
 .grid {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.72rem;
   padding: 0.55rem 0.85rem 0.95rem;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow-x: hidden;
+  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  scroll-snap-type: x mandatory;
+  scroll-snap-type: none;
 }
 .grid::-webkit-scrollbar { display: none; }
 
@@ -136,7 +137,7 @@
   align-items: center;
   gap: 0.42rem;
   padding: 0.72rem 0.64rem;
-  min-width: 112px;
+  min-width: 0;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.015), transparent 65%),
     var(--bg);
@@ -146,7 +147,7 @@
   transition: transform 0.12s, border-color 0.12s, background 0.12s, box-shadow 0.12s;
   font-family: var(--sans);
   -webkit-tap-highlight-color: transparent;
-  scroll-snap-align: start;
+  scroll-snap-align: none;
   flex-shrink: 0;
   position: relative;
 }
@@ -230,7 +231,7 @@
 /* ── Skeletons ───────────────────────────────────────────────── */
 .loadingRow { display: contents; }
 .cardSkeleton {
-  width: 112px; height: 148px; flex-shrink: 0;
+  width: auto; height: 148px; flex-shrink: 0;
   border-radius: 10px;
   background: linear-gradient(90deg,
     var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%);
@@ -249,7 +250,7 @@
 .empty {
   color: var(--muted); font-size: 0.78rem;
   text-align: center; padding: 0.75rem 0;
-  flex: 1;
+  grid-column: 1/-1;
 }
 @media (min-width: 768px) {
   .empty { grid-column: 1/-1; }

@@ -7,6 +7,8 @@
   min-height: 360px;
   background: #000;
   overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid var(--border);
 }
 
 @media (min-width: 768px) {
